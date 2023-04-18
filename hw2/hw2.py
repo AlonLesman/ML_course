@@ -138,6 +138,10 @@ def goodness_of_split(data, feature, impurity_func, gain_ratio=False):
         groups[feature_value] = np.concatenate([groups[feature_value], [instance]], axis=0)
     groups_impurity = sum([impurity_func(groups[feature]) * len(groups[feature]) for feature in groups])
     goodness = source_impurity - groups_impurity
+    if(gain_ratio):
+        # must implement info gain
+        info_gain = 1 
+        return (goodness/info_gain), groups
     return goodness, groups
 
 class DecisionNode:
@@ -181,17 +185,37 @@ class DecisionNode:
         Splits the current node according to the impurity_func. This function finds
         the best feature to split according to and create the corresponding children.
         This function should support pruning according to chi and max_depth.
-
+        
         Input:
         - The impurity function that should be used as the splitting criteria
 
         This function has no return value
         """
+        # 1-extracts the best feature
+        # 2-split the data into childs bast on the first step
+        # 2.1-set the feature attribute to be the best feature
+        # 2.2-for each group in groups create new child and add it to self_child
+        # 2.3-for each new child determind if is it terminal,namly leaf
+
         # create {feature : goodness} dictionary
         features_goodness = {feature : goodness_of_split(self.data,feature,impurity_func)[0] for feature in self.data[0]}
         # extract the best feature 
         max_goodness_feature = max(features_goodness, key=lambda feature : features_goodness[feature])
-        self.children = goodness_of_split(self.data, max_goodness_feature, impurity_func)[1]
+        self.feature = max_goodness_feature
+        self.children_values = goodness_of_split(self.data, max_goodness_feature, impurity_func)[1]
+        # for child in children:
+        #     # child_node = DecisionNode(children[child])
+        #     # child_node = build_tree(children[child])
+        #     # children[child].pop()
+            
+
+        #     # what is the child value to pass?
+        #     # self.add_child(child_node, )
+        #     # 2.3 not sure if its correct
+        #     # child_node.terminal = (impurity_func(child_node) == 0)
+            
+
+    
 
 def build_tree(data, impurity, gain_ratio=False, chi=1, max_depth=1000):
     """
@@ -207,14 +231,16 @@ def build_tree(data, impurity, gain_ratio=False, chi=1, max_depth=1000):
 
     Output: the root node of the tree.
     """
-    root = None
-    ###########################################################################
-    # TODO: Implement the function.                                           #
-    ###########################################################################
-    pass
-    ###########################################################################
-    #                             END OF YOUR CODE                            #
-    ###########################################################################
+    root = DecisionNode(data)    
+    # stop condition
+    if root.terminal:
+        return
+    root.split(impurity)
+    for child in root.children_values:
+        # create an object of decision node and add it to children
+        root.add_child(build_tree(root.children_values[child]),root.children_values[child])
+        # update child node terminal attribute
+        root.children[child].terminal = (impurity(root.children[child].data) == 0)   
     return root
 
 def predict(root, instance):
