@@ -130,18 +130,24 @@ def goodness_of_split(data, feature, impurity_func, gain_ratio=False):
     goodness = 0
     groups = {} # groups[feature_value] = data_subset
     source_impurity = impurity_func(data)
-    
+    # create partition to groups by the given feature
     for instance in data:
         feature_value = instance[feature]
-        if feature_value not in groups:
-            groups[feature_value] = np.empty((0, data.shape[1]))
-        groups[feature_value] = np.concatenate([groups[feature_value], [instance]], axis=0)
+        print(feature_value, feature)
+        print(type(feature_value))
+        # if feature_value not in groups:
+        #     groups[feature_value] = [np.empty((0, data.shape[1]))]
+        # groups[feature_value] = np.concatenate([groups[feature_value], [instance]], axis=0)
+        if feature_value not in list(groups.keys()):
+            groups[feature_value] = []
+        groups[feature_value].append(instance)
     groups_impurity = sum([impurity_func(groups[feature]) * len(groups[feature]) for feature in groups])
     goodness = source_impurity - groups_impurity
     if(gain_ratio):
-        # must implement info gain
-        info_gain = 1 
-        return (goodness/info_gain), groups
+        # must check info gain
+        split_info = sum([-(len(groups[feature])/len(data)) * np.log2(len(groups[feature])/len(data)) for feature in groups])
+        if split_info == 0:
+            return 0, groups
     return goodness, groups
 
 class DecisionNode:
@@ -168,7 +174,7 @@ class DecisionNode:
         """
         labels = [row[-1] for row in self.data]
         label_counts = {label: labels.count(label) for label in labels}
-        return max(label_counts, lambda label : label_counts[label])
+        return max(label_counts,key=lambda label : label_counts[label])
         
     def add_child(self, node, val):
         """
@@ -198,15 +204,18 @@ class DecisionNode:
         # 2.3-for each new child determind if is it terminal,namly leaf
 
         # create {feature : goodness} dictionary
-        features_goodness = {feature : goodness_of_split(self.data,feature,impurity_func)[0] for feature in self.data[0]}
+        features_goodness = {feature : goodness_of_split(self.data,index,impurity_func)[0] for index, feature in enumerate(self.data[0])}
         # extract the best feature 
         max_goodness_feature = max(features_goodness, key=lambda feature : features_goodness[feature])
-        self.feature = max_goodness_feature
-        self.children_values = goodness_of_split(self.data, max_goodness_feature, impurity_func)[1]
+        # self.feature = self.data.loc[:,max_goodness_feature]
+        self.feature = np.where(self.data == max_goodness_feature)[1]     
+        self.children_values = list(goodness_of_split(self.data, self.feature, impurity_func)[1].values())
+        # err - dict/list
         # for child in children:
         #     # child_node = DecisionNode(children[child])
         #     # child_node = build_tree(children[child])
         #     # children[child].pop()
+
             
 
         #     # what is the child value to pass?
@@ -231,16 +240,18 @@ def build_tree(data, impurity, gain_ratio=False, chi=1, max_depth=1000):
 
     Output: the root node of the tree.
     """
-    root = DecisionNode(data)    
+    root = DecisionNode(data)  
+    # update node terminal attribute
+    root.terminal = (impurity(data) == 0)  
     # stop condition
     if root.terminal:
         return
     root.split(impurity)
     for child in root.children_values:
         # create an object of decision node and add it to children
-        root.add_child(build_tree(root.children_values[child]),root.children_values[child])
-        # update child node terminal attribute
-        root.children[child].terminal = (impurity(root.children[child].data) == 0)   
+        child_node = build_tree(root.children_values[child])
+        child_value = root.children_values[child]
+        root.add_child(child_node,child_value)    
     return root
 
 def predict(root, instance):
