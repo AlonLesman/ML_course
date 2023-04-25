@@ -131,16 +131,10 @@ def goodness_of_split(data, feature, impurity_func, gain_ratio=False):
     groups = {} # groups[feature_value] = data_subset
     source_impurity = impurity_func(data)
     # create partition to groups by the given feature
-    for instance in data:
-        feature_value = instance[feature]
-        print(feature_value, feature)
-        print(type(feature_value))
-        # if feature_value not in groups:
-        #     groups[feature_value] = [np.empty((0, data.shape[1]))]
-        # groups[feature_value] = np.concatenate([groups[feature_value], [instance]], axis=0)
-        if feature_value not in list(groups.keys()):
-            groups[feature_value] = []
-        groups[feature_value].append(instance)
+    for feature_value in np.unique(data[:,feature]):
+         data_subset = data [data[:,feature] == feature_value]
+         groups[feature_value] = data_subset
+    
     groups_impurity = sum([impurity_func(groups[feature]) * len(groups[feature]) for feature in groups])
     goodness = source_impurity - groups_impurity
     if(gain_ratio):
@@ -148,12 +142,33 @@ def goodness_of_split(data, feature, impurity_func, gain_ratio=False):
         split_info = sum([-(len(groups[feature])/len(data)) * np.log2(len(groups[feature])/len(data)) for feature in groups])
         if split_info == 0:
             return 0, groups
+    
+    print("goodness has ended!")
     return goodness, groups
-
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#     goodness=0
+#     groups = {}# groups [feature_value] = data_subset
+#     for feature_value in np. unique (data[:, feature]):
+#         data_subset = data[data[:, feature] == feature_value]
+#         groups[feature_value] = data_subset
+# # Calculate the initial impurity of the whole dataset
+#         phi_of_s = impurity_func (data)
+# # Calculate the weighted average of the impurity of each subset 
+#         weighted_avg_split = sum([len (groups [feature_value]) / len(data) * impurity_func(data)])
+# # Calculate the goodness of split value
+#         goodness = phi_of_s - weighted_avg_split
+# # Calculate the split information value
+#         split_info = sum([-(len(groups[feature])/len(data)) * np.log2(len(groups[feature])/len(data)) for feature in groups])
+# # Calculate the gain ratio, if specified
+#         if gain_ratio and split_info != 0:
+#             goodness = goodness / split_info
+#     return goodness, groups
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 class DecisionNode:
 
     def __init__(self, data, feature=-1,depth=0, chi=1, max_depth=1000, gain_ratio=False):
         
+        print("new desicion node created !")
         self.data = data # the relevant data for the node
         self.feature = feature # column index of criteria being tested
         self.pred = self.calc_node_pred() # the prediction of the node
@@ -202,26 +217,22 @@ class DecisionNode:
         # 2.1-set the feature attribute to be the best feature
         # 2.2-for each group in groups create new child and add it to self_child
         # 2.3-for each new child determind if is it terminal,namly leaf
-
+        print("split has begun")
         # create {feature : goodness} dictionary
-        features_goodness = {feature : goodness_of_split(self.data,index,impurity_func)[0] for index, feature in enumerate(self.data[0])}
+        features_goodness = {index : goodness_of_split(self.data,index,impurity_func)[0] for index in range(self.data.shape[1]-1)}
         # extract the best feature 
-        max_goodness_feature = max(features_goodness, key=lambda feature : features_goodness[feature])
+        max_goodness_feature = max(features_goodness, key=lambda index : features_goodness[index])
         # self.feature = self.data.loc[:,max_goodness_feature]
-        self.feature = np.where(self.data == max_goodness_feature)[1]     
+        self.feature = np.where(self.data == max_goodness_feature)[0] 
+        print("the best feature for split is: " + str(max_goodness_feature))    
         self.children_values = list(goodness_of_split(self.data, self.feature, impurity_func)[1].values())
         # err - dict/list
         # for child in children:
         #     # child_node = DecisionNode(children[child])
         #     # child_node = build_tree(children[child])
         #     # children[child].pop()
+        print("split has ended")
 
-            
-
-        #     # what is the child value to pass?
-        #     # self.add_child(child_node, )
-        #     # 2.3 not sure if its correct
-        #     # child_node.terminal = (impurity_func(child_node) == 0)
             
 
     
@@ -242,16 +253,19 @@ def build_tree(data, impurity, gain_ratio=False, chi=1, max_depth=1000):
     """
     root = DecisionNode(data)  
     # update node terminal attribute
+   
     root.terminal = (impurity(data) == 0)  
     # stop condition
-    if root.terminal:
+    if root.terminal or max_depth == 0:
+        print("terminal node")
         return
     root.split(impurity)
     for child in root.children_values:
         # create an object of decision node and add it to children
-        child_node = build_tree(root.children_values[child])
+        child_node = build_tree(root.children_values[child],impurity,max_depth-1)
         child_value = root.children_values[child]
-        root.add_child(child_node,child_value)    
+        root.add_child(child_node,child_value) 
+        print("add child !")   
     return root
 
 def predict(root, instance):
@@ -266,14 +280,11 @@ def predict(root, instance):
     Output: the prediction of the instance.
     """
     pred = None
-    ###########################################################################
-    # TODO: Implement the function.                                           #
-    ###########################################################################
-    pass
-    ###########################################################################
-    #                             END OF YOUR CODE                            #
-    ###########################################################################
-    return pred
+    while (root.children is not []):
+        for child in root.children:
+            if child.data[(0,root.feature)] == instance [root.feature]:
+                root = child
+    return root.pred
 
 def calc_accuracy(node, dataset):
     """
@@ -286,13 +297,11 @@ def calc_accuracy(node, dataset):
     Output: the accuracy of the decision tree on the given dataset (%).
     """
     accuracy = 0
-    ###########################################################################
-    # TODO: Implement the function.                                           #
-    ###########################################################################
-    pass
-    ###########################################################################
-    #                             END OF YOUR CODE                            #
-    ###########################################################################
+    correct_prediction = 0
+    for instance in dataset:
+        if instance[-1] == predict(node,instance):
+            correct_prediction += 1
+    accuracy = (correct_prediction / len(dataset) * 100)
     return accuracy
 
 def depth_pruning(X_train, X_test):
@@ -309,14 +318,14 @@ def depth_pruning(X_train, X_test):
     """
     training = []
     testing  = []
-    ###########################################################################
-    # TODO: Implement the function.                                           #
-    ###########################################################################
+    # to be update
+    best_impurity_function = calc_entropy() 
+    gain_ratio = False
     for max_depth in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]:
-        pass
-    ###########################################################################
-    #                             END OF YOUR CODE                            #
-    ###########################################################################
+        root = build_tree(X_train, best_impurity_function, gain_ratio, max_depth=max_depth)
+        training.append(calc_accuracy(root, X_train))
+        testing.append(calc_accuracy(root, X_test))
+
     return training, testing
 
 
@@ -357,15 +366,13 @@ def count_nodes(node):
  
     Output: the number of nodes in the tree.
     """
-    n_nodes = None
-    ###########################################################################
-    # TODO: Implement the function.                                           #
-    ###########################################################################
-    pass
-    ###########################################################################
-    #                             END OF YOUR CODE                            #
-    ###########################################################################
-    return n_nodes
+    n_nodes = 0
+    if node.children == []:
+        return 1
+    for child in node.children:
+        n_nodes += count_nodes(child)
+    return 1 + n_nodes
+
 
 
 
