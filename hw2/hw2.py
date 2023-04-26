@@ -142,33 +142,12 @@ def goodness_of_split(data, feature, impurity_func, gain_ratio=False):
         split_info = sum([-(len(groups[feature])/len(data)) * np.log2(len(groups[feature])/len(data)) for feature in groups])
         if split_info == 0:
             return 0, groups
-    
-    print("goodness has ended!")
     return goodness, groups
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#     goodness=0
-#     groups = {}# groups [feature_value] = data_subset
-#     for feature_value in np. unique (data[:, feature]):
-#         data_subset = data[data[:, feature] == feature_value]
-#         groups[feature_value] = data_subset
-# # Calculate the initial impurity of the whole dataset
-#         phi_of_s = impurity_func (data)
-# # Calculate the weighted average of the impurity of each subset 
-#         weighted_avg_split = sum([len (groups [feature_value]) / len(data) * impurity_func(data)])
-# # Calculate the goodness of split value
-#         goodness = phi_of_s - weighted_avg_split
-# # Calculate the split information value
-#         split_info = sum([-(len(groups[feature])/len(data)) * np.log2(len(groups[feature])/len(data)) for feature in groups])
-# # Calculate the gain ratio, if specified
-#         if gain_ratio and split_info != 0:
-#             goodness = goodness / split_info
-#     return goodness, groups
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 class DecisionNode:
 
     def __init__(self, data, feature=-1,depth=0, chi=1, max_depth=1000, gain_ratio=False):
         
-        print("new desicion node created !")
         self.data = data # the relevant data for the node
         self.feature = feature # column index of criteria being tested
         self.pred = self.calc_node_pred() # the prediction of the node
@@ -212,31 +191,66 @@ class DecisionNode:
 
         This function has no return value
         """
-        # 1-extracts the best feature
-        # 2-split the data into childs bast on the first step
-        # 2.1-set the feature attribute to be the best feature
-        # 2.2-for each group in groups create new child and add it to self_child
-        # 2.3-for each new child determind if is it terminal,namly leaf
-        print("split has begun")
-        # create {feature : goodness} dictionary
+        # create {feature_index : goodness} dictionary
         features_goodness = {index : goodness_of_split(self.data,index,impurity_func)[0] for index in range(self.data.shape[1]-1)}
-        # extract the best feature 
-        max_goodness_feature = max(features_goodness, key=lambda index : features_goodness[index])
-        # self.feature = self.data.loc[:,max_goodness_feature]
-        self.feature = np.where(self.data == max_goodness_feature)[0] 
-        print("the best feature for split is: " + str(max_goodness_feature))    
-        self.children_values = list(goodness_of_split(self.data, self.feature, impurity_func)[1].values())
-        # err - dict/list
-        # for child in children:
-        #     # child_node = DecisionNode(children[child])
-        #     # child_node = build_tree(children[child])
-        #     # children[child].pop()
-        print("split has ended")
-
-            
-
+        # extract the best feature and update the relevent field
+        self.feature = max(features_goodness, key=lambda index : features_goodness[index])           
+        groups = goodness_of_split(self.data, self.feature, impurity_func)[1]
+        self.chi = self.chi_square(groups)
+        # if the split doesnt signficiant by chi test, set this node as terminal 
+        if (not self.chi_square_test(groups,self.chi) or len(groups) <= 1):
+            self.terminal = True
+            return        
+        for key,value in groups.items():
+            child_node = DecisionNode(value)
+            self.add_child(child_node,key)
+            child_node.terminal = (impurity_func(value) == 0)
     
+    def chi_square(self, groups):
+        """
+        Calculate the chi-squared statistic for a given node's split.
 
+        Input: groups: {feature_value : data_subset} dictionary
+        
+        Output: chi_squared_statistic(int)
+        """
+        total_instances = len(self.data)
+        labels_count = labels_counter(self.data)
+        chi_square_statistic = 0
+
+        for group in groups.values():
+            subset_size = len(group)
+            subset_labels_count = labels_counter(group)
+            for label, count in labels_count.items():
+                expected_count = subset_size * count / total_instances
+                observed_count = subset_labels_count.get(label, 0)
+                chi_square_statistic += ((observed_count - expected_count) ** 2) / expected_count
+        
+        return chi_square_statistic
+    
+    def chi_square_test(self, groups, chi):
+        """
+        Return True if the chi-squared test for the node's split is significant.
+
+        Input:
+        - node: the current node being evaluated.
+        - groups: a dictionary holding the data after splitting according to the feature values.
+        - chi: the chi-squared significance threshold.
+
+        Output: True if the chi-squared test is significant, False otherwise.
+        """
+        # If chi is set to 1, the chi-squared test is always significant
+        if chi == 1:
+            return True
+        # Calculate the chi-squared statistic for the current split
+        chi_squared_statistic = self.chi_square(groups)
+        degrees_of_freedom = len(groups) - 1
+        # Look up the threshold chi-squared value based on the degrees of freedom and significance level
+        threshold = chi_table.get(degrees_of_freedom, {}).get(chi, 100000)
+        # If the chi-squared statistic is greater than or equal to the threshold value, the test is significant
+        return chi_squared_statistic >= threshold
+    
+    
 def build_tree(data, impurity, gain_ratio=False, chi=1, max_depth=1000):
     """
     Build a tree using the given impurity measure and training dataset. 
@@ -251,22 +265,19 @@ def build_tree(data, impurity, gain_ratio=False, chi=1, max_depth=1000):
 
     Output: the root node of the tree.
     """
+    print("new tree created")  
     root = DecisionNode(data)  
     # update node terminal attribute
-   
-    root.terminal = (impurity(data) == 0)  
-    # stop condition
-    if root.terminal or max_depth == 0:
-        print("terminal node")
-        return
-    root.split(impurity)
-    for child in root.children_values:
-        # create an object of decision node and add it to children
-        child_node = build_tree(root.children_values[child],impurity,max_depth-1)
-        child_value = root.children_values[child]
-        root.add_child(child_node,child_value) 
-        print("add child !")   
+    root.terminal = (impurity(data) == 0)
+    built_tree_helper(root,impurity,gain_ratio,max_depth) 
     return root
+
+def built_tree_helper(node, impurity, gain_ratio, max_depth):
+    if node.terminal or max_depth == 0:
+        return
+    node.split(impurity)
+    for child in node.children:
+        built_tree_helper(child, impurity, gain_ratio, max_depth-1)        
 
 def predict(root, instance):
     """
@@ -280,9 +291,9 @@ def predict(root, instance):
     Output: the prediction of the instance.
     """
     pred = None
-    while (root.children is not []):
+    while not root.terminal and root.children != []:
         for child in root.children:
-            if child.data[(0,root.feature)] == instance [root.feature]:
+            if child.data[(0,root.feature)] == instance[root.feature]:
                 root = child
     return root.pred
 
@@ -319,16 +330,14 @@ def depth_pruning(X_train, X_test):
     training = []
     testing  = []
     # to be update
-    best_impurity_function = calc_entropy() 
+    best_impurity_function = calc_entropy
     gain_ratio = False
-    for max_depth in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]:
+    for max_depth in range(1,10):
         root = build_tree(X_train, best_impurity_function, gain_ratio, max_depth=max_depth)
         training.append(calc_accuracy(root, X_train))
         testing.append(calc_accuracy(root, X_test))
-
     return training, testing
-
-
+    
 def chi_pruning(X_train, X_test):
 
     """
@@ -372,6 +381,23 @@ def count_nodes(node):
     for child in node.children:
         n_nodes += count_nodes(child)
     return 1 + n_nodes
+
+def labels_counter(data):
+        """
+        create a {label : counter of label} dictionary for a given data
+
+        Input: data where the last column holds the labels
+
+        Output: dictionary of {label : counter of label}
+        """
+        labels_count = {}
+        for label in data[-1]:
+            if label not in labels_count:
+                labels_count[label] = 1
+            else:
+                labels_count[label] += 1
+
+        return labels_count
 
 
 
