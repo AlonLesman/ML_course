@@ -156,14 +156,7 @@ def norm_pdf(data, mu, sigma):
  
     Returns the normal distribution pdf according to the given mu and sigma for the given x.    
     """
-    p = None
-    ###########################################################################
-    # TODO: Implement the function.                                           #
-    ###########################################################################
-    pass
-    ###########################################################################
-    #                             END OF YOUR CODE                            #
-    ###########################################################################
+    p = np.exp(-((data-mu)**2) / (2*(sigma**2))) / np.sqrt(2*np.pi*(sigma**2))
     return p
 
 class EM(object):
@@ -201,37 +194,35 @@ class EM(object):
         """
         Initialize distribution params
         """
-        ###########################################################################
-        # TODO: Implement the function.                                           #
-        ###########################################################################
-        pass
-        ###########################################################################
-        #                             END OF YOUR CODE                            #
-        ###########################################################################
-
+        self.weights = np.ones(self.k)/self.k
+        self.mus = np.random.rand(self.k)
+        self.sigmas = np.random.rand(self.k)
+        self.costs = []
+     
+   
     def expectation(self, data):
         """
         E step - This function should calculate and update the responsibilities
         """
-        ###########################################################################
-        # TODO: Implement the function.                                           #
-        ###########################################################################
-        pass
-        ###########################################################################
-        #                             END OF YOUR CODE                            #
-        ###########################################################################
+        self.responsibilities = np.zeros((self.k, len(data)))
+        # calculate and update resposibilities for each cluster/gaussian
+        for k in range(self.k):
+            self.responsibilities[k] = self.weights[k] * (norm_pdf(data, self.mus[k], self.sigmas[k]).flatten()) 
+        # normalizing responsibilities 
+        self.responsibilities /= self.responsibilities.sum(0)
 
     def maximization(self, data):
         """
         M step - This function should calculate and update the distribution params
         """
-        ###########################################################################
-        # TODO: Implement the function.                                           #
-        ###########################################################################
-        pass
-        ###########################################################################
-        #                             END OF YOUR CODE                            #
-        ###########################################################################
+        resposibility_sum = self.responsibilities.sum(0)
+        
+        self.weights = (1 / len(data)) * resposibility_sum
+
+        for k in range(self.k):
+            weights_N = self.weights[k] * len(data)
+            self.mus[k] = sum(data[i] * self.responsibilities[k][i] for i in range(len(data))) / weights_N
+            self.sigmas[k] = np.sqrt(sum(self.responsibilities[k][i] * (data[i]-self.mus[k])**2 for i in range(len(data))) / weights_N)             
 
     def fit(self, data):
         """
@@ -242,14 +233,22 @@ class EM(object):
         Stop the function when the difference between the previous cost and the current is less than eps
         or when you reach n_iter.
         """
-        ###########################################################################
-        # TODO: Implement the function.                                           #
-        ###########################################################################
-        pass
-        ###########################################################################
-        #                             END OF YOUR CODE                            #
-        ###########################################################################
-
+        self.init_params(data)
+        for i in range(self.n_iter):
+            self.expectation(data)
+            self.maximization(data)
+            self.costs.append(self.cost(data))
+            if len(self.costs) >= 2 and abs(self.costs[-1] - self.costs[-2]) < self.eps:
+                break
+    
+    def cost(self, data):
+        """TC"""
+        cost = 0
+        for x in data:
+            likelihood = sum(self.weights[k] * norm_pdf(x, self.mus[k], self.sigmas[k]) for k in range(self.k))
+            cost += -np.log2(likelihood)
+        return cost
+    
     def get_dist_params(self):
         return self.weights, self.mus, self.sigmas
 
@@ -267,14 +266,7 @@ def gmm_pdf(data, weights, mus, sigmas):
     Returns the GMM distribution pdf according to the given mus, sigmas and weights
     for the given data.    
     """
-    pdf = None
-    ###########################################################################
-    # TODO: Implement the function.                                           #
-    ###########################################################################
-    pass
-    ###########################################################################
-    #                             END OF YOUR CODE                            #
-    ###########################################################################
+    pdf = sum (weights[i] * norm_pdf(data,  mus[i], sigmas[i]) for i in range(len(weights)))
     return pdf
 
 class NaiveBayesGaussian(object):
@@ -306,29 +298,49 @@ class NaiveBayesGaussian(object):
         y : array-like, shape = [n_examples]
           Target values.
         """
-        ###########################################################################
-        # TODO: Implement the function.                                           #
-        ###########################################################################
-        pass
-        ###########################################################################
-        #                             END OF YOUR CODE                            #
-        ###########################################################################
+        # Determine unique class labels
+        self.classes = np.unique(y)
+        self.priors = []
+        self.parameters = []
+        
+        for i, label in enumerate(self.classes):
+            # creates subset of instance for the current class 
+            class_subset = X[y == label]
+            # set prior liklihood for the current class
+            self.priors.append(class_subset.shape[0] / X.shape[0])
+            self.parameters.append([])
+            for feature in class_subset.T:
+                em = EM(k=self.k, random_state=self.random_state)
+                em.fit(feature)
+                weight, mu, sigma = em.get_dist_params()
+                self.parameters[i].append((weight, mu, sigma)) 
+
+
 
     def predict(self, X):
         """
-        Return the predicted class labels for a given instance.
+        Return the predicted class labels for each given instance.
         Parameters
         ----------
         X : {array-like}, shape = [n_examples, n_features]
         """
-        preds = None
-        ###########################################################################
-        # TODO: Implement the function.                                           #
-        ###########################################################################
-        pass
-        ###########################################################################
-        #                             END OF YOUR CODE                            #
-        ###########################################################################
+        preds = []
+        for instance in X:
+            posteriors = []
+            for class_i,_ in enumerate(self.classes):
+                # prior liklihood
+                class_likelihood = self.priors[class_i]
+                # features responsibilities
+                for feature in instance:
+                    weight, mu, sigma = self.parameters[class_i][int(feature)]
+                    # compute respon. with the parameter we found in the EM 
+                    resposibility = gmm_pdf(instance,weight,mu,sigma)
+                    # multiply each resposibility, assuming iid
+                    class_likelihood *= resposibility 
+                
+                posteriors.append(class_likelihood) 
+            preds.append(self.classes[np.argmax(posteriors)])                  
+
         return preds
 
 def model_evaluation(x_train, y_train, x_test, y_test, k, best_eta, best_eps):
